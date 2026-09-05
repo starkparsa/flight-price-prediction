@@ -1,7 +1,15 @@
 # Flight Price Prediction
 
-A round-trip flight price prediction system that goes beyond a single price
-estimate. It answers two practical questions:
+**Status**: see [`STATUS.md`](STATUS.md) for the current snapshot, next
+action, and known blockers — read that before this file if you're picking
+this project back up. [`decisions.md`](decisions.md) has the why behind
+each choice below; [`progress.md`](progress.md) is the session diary.
+
+A round-trip flight price prediction component being built for
+integration into [Itinera](../Itinera) (a chat-driven AI trip planner).
+The deliverable is a **trained model artifact + documented schema** that
+a consuming backend loads directly — not a hosted API. It answers two
+practical questions:
 
 1. **Which travel dates are cheapest?** Given a route and a flexible date
    range, grid-search every (departure, return) pair and surface the
