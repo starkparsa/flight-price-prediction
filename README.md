@@ -86,7 +86,14 @@ Good sources for real fare data:
 - **[Kaggle: Flight Prices (dilwong)](https://www.kaggle.com/datasets/dilwong/flightprices)** — scraped Expedia fares with both search date and flight date. One-time bulk download; used to bootstrap the first real-data training pass (see `decisions.md`).
 - **Amadeus Self-Service Flight Offers Search API, via `collect_fares.py` in this repo** — the ongoing steady-stream source. See below.
 
-## Collecting real data (the steady stream)
+## Collecting real data (the steady stream) — currently blocked
+
+**Amadeus decommissioned its self-service developer portal on
+2026-07-17** — the collector described below can no longer be used as-is.
+See `STATUS.md` and `decisions.md` for the current plan (evaluating
+Travelpayouts as a replacement data source). The rest of this section
+describes the original design, kept because the rotation/quota-guard
+pattern is reusable against whatever provider replaces Amadeus.
 
 `collect_fares.py` queries the Amadeus Flight Offers Search API for a
 rotating slice of (route, departure date, trip length) combinations each

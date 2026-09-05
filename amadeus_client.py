@@ -1,4 +1,11 @@
 """
+⚠️ DEAD CODE as of 2026-09-05: Amadeus decommissioned its self-service
+developer portal on 2026-07-17. This module can no longer be used — there
+is no way to obtain AMADEUS_CLIENT_ID/SECRET anymore. Kept for reference
+(the OAuth2/never-raises/tiny-.env-loader pattern is reusable against
+whatever provider replaces it) — see decisions.md's pivot entry and
+STATUS.md before touching this file or collect_fares.py again.
+
 Thin wrapper around the Amadeus Self-Service Flight Offers Search API.
 
 Deliberately plain `requests` + OAuth2 client-credentials, not the official

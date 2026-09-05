@@ -4,6 +4,39 @@ Dated diary of what happened each session. Newest first.
 
 ---
 
+## 2026-09-05 (continued) — Amadeus pivot
+
+User tried to actually sign up for Amadeus (from this session's own
+instructions) and it doesn't exist as self-service anymore. Confirmed via
+search: Amadeus decommissioned the self-service developer portal on
+2026-07-17 (registration had already been paused since spring 2026) —
+everything built earlier today (`amadeus_client.py`, `quota_tracker.py`,
+`collect_fares.py`, `routes.json`, `.env.example`) is now dead code
+against a nonexistent API.
+
+Re-surveyed alternatives: Duffel (real prices, effectively ~$3/month at
+our volume once you factor the search-to-book ratio fee — not literally
+free), Sabre Dev Studio (sandbox-only free, production is a $500+/month
+commercial contract), Travelpayouts (still the best-shaped free option,
+terms still unconfirmed), RapidAPI's unofficial Skyscanner mirror (100
+free requests/month, unofficial), and re-confirmed Kiwi Tequila is still
+invite-only. Also checked AeroDataBox directly — it has zero price data,
+schedules/status only, eliminated outright regardless of cost.
+
+Asked the user how to proceed given no option is both free and
+unambiguous the way Amadeus was. **Decision: hold everything, user is
+reading Travelpayouts' actual terms directly** (linked in `decisions.md`)
+before any further code gets written. Updated `STATUS.md` and
+`decisions.md` to mark the Amadeus work as dead/blocked rather than
+silently leaving stale "next action" instructions pointing at a signup
+flow that no longer exists.
+
+**Not done this session**: no rewrite of the collector yet — waiting on
+the user's terms review before choosing Travelpayouts vs. Duffel vs.
+dropping live collection for this phase.
+
+---
+
 ## 2026-09-05
 
 **Grilled the project scope** at the user's request before touching code

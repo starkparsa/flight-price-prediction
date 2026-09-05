@@ -4,7 +4,47 @@ What was decided, why, and when to revisit. Newest first.
 
 ---
 
-## Steady-stream data source: self-run Amadeus daily collector, not a third-party aggregator
+## Amadeus self-service is dead — pivot pending user's Travelpayouts terms check
+
+**Decided**: 2026-09-05 (supersedes the entry below, kept for record)
+**What happened**: user tried to sign up for Amadeus and it doesn't exist
+as self-service anymore. Confirmed: Amadeus decommissioned the self-service
+developer portal on **2026-07-17** — new registration was paused that
+spring, existing keys are now disabled, portal inaccessible. (Enterprise
+APIs still exist but require a commercial/sales relationship, not
+self-service.) Everything built in the entry below (`amadeus_client.py`,
+`quota_tracker.py`, `collect_fares.py`, `routes.json`, `.env.example`) is
+now dead code against a nonexistent API.
+**Alternatives re-surveyed same day**:
+| Option | Real prices | Cost | Issue |
+|---|---|---|---|
+| Duffel | Yes | ~$0.005/search once past a booking-tied free allotment — effectively **~$3/month** at our planned volume with zero bookings | Not literally $0; needs an explicit budget exception |
+| Sabre Dev Studio | Yes | Free sandbox (fake data) only; production is a commercial contract, reportedly $500-5,000+/month | Not viable under $0 |
+| Travelpayouts Data API | Yes, crowdsourced, has `found_at` (search date) | Free | Affiliate-network terms, use-case fit unconfirmed (see open question) |
+| RapidAPI "Sky Scrapper" (unofficial Skyscanner mirror) | Yes | Free tier: 100 req/month | Unofficial, no data-rights guarantee, thin volume |
+| Kiwi Tequila | Yes | — | Confirmed invite-only, not accessible |
+| AeroDataBox | **No prices at all** — schedules/status only | — | Eliminated outright, doesn't do what we need regardless of cost |
+**Decision**: pause on the live collector. User is reading Travelpayouts'
+actual terms directly ([Terms of the Travelpayouts Travel Affiliate
+Network](https://support.travelpayouts.com/hc/en-us/articles/360004162111-Terms-of-the-Travelpayouts-Travel-Affiliate-Network),
+[API FAQ](https://support.travelpayouts.com/hc/en-us/articles/204529267-FAQ-about-API),
+[API and data docs](https://support.travelpayouts.com/hc/en-us/categories/200358578-API-and-data))
+before any further code gets written against it or anything else.
+One relevant detail surfaced while researching: their live real-time
+search API requires "every search query must be initiated by a user,"
+but that restriction is documented for the *live search* API
+specifically — the **Data API** (the cached-price endpoints this project
+would use: `/v1/prices/cheap`, `/v1/prices/calendar`, `/v2/prices/latest`)
+is described separately as not carrying that restriction. Flagged for the
+user to confirm directly rather than assumed.
+**Revisit**: once the user reports back on the Travelpayouts terms. If
+unusable, fall back to Duffel (with an explicit budget-exception decision)
+or drop live collection for this phase and rely on the Kaggle bootstrap
+dataset alone.
+
+---
+
+## Steady-stream data source: self-run Amadeus daily collector, not a third-party aggregator (SUPERSEDED — see entry above)
 
 **Decided**: 2026-09-05
 **Decision**: Build `collect_fares.py` as a scheduled, self-run daily

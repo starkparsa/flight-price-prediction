@@ -1,4 +1,10 @@
 """
+⚠️ DEAD CODE as of 2026-09-05: depends on amadeus_client.py, which depends
+on an Amadeus self-service API that no longer exists (portal decommissioned
+2026-07-17). Do not run this expecting it to work. Kept for reference —
+the rotation/quota-guard design is reusable against whatever provider
+replaces Amadeus. See decisions.md's pivot entry and STATUS.md.
+
 Daily fare collector: the "steady stream" data source for this project.
 
 Run this once a day (cron / Windows Task Scheduler / any scheduler) and it

@@ -34,24 +34,25 @@ out as the final training source — see `decisions.md`).
   says nothing about real-world accuracy.
 - Public repo live: https://github.com/starkparsa/flight-price-prediction
 
-**Built since (steady-stream data collection, 2026-09-05)**:
-- `amadeus_client.py` — Amadeus Flight Offers Search wrapper (OAuth2,
-  never raises, `{"error": ...}` on failure — matches Itinera's `tools.py`
-  convention already).
-- `quota_tracker.py` — local monthly call-count guard, hard-capped under
-  Amadeus's free 2,000/month production limit.
-- `collect_fares.py` — the actual steady-stream collector. Run daily, it
-  queries a deterministically-rotating slice of (route, days_out, nights)
-  combinations and appends real current prices to `data/real_fares.csv`
-  in this repo's existing schema. Verified: dry-run mode works, quota
-  guard correctly refuses to burn quota on a local auth/config failure
-  (caught and fixed a bug where it originally did).
-- `routes.json` — placeholder route list; **needs updating** to whatever
-  routes Itinera actually needs once that's known.
-- Not yet run against a real Amadeus account — needs a free
-  developers.amadeus.com signup + API key (the user's own signup; not
-  something this session can do on their behalf) before it produces any
-  real rows.
+**BLOCKED — Amadeus self-service is dead (discovered 2026-09-05).** Amadeus
+decommissioned its self-service developer portal on 2026-07-17 (new
+registration was paused that spring); the user hit this directly trying to
+sign up. `amadeus_client.py` / `quota_tracker.py` / `collect_fares.py` /
+`routes.json` / `.env.example` are now **dead code against a nonexistent
+API** — left in the repo for reference (the rotation/quota-guard design is
+reusable against a different provider) but not wired to anything live.
+See `decisions.md`'s pivot entry for the full alternative comparison
+(Duffel, Sabre, Travelpayouts, RapidAPI mirrors — none free-and-unambiguous
+the way Amadeus was).
+
+**Current plan (as of 2026-09-05, awaiting user input)**: user is reading
+Travelpayouts' actual terms (linked in `decisions.md`) to decide if its
+Data API — genuinely free, real crowdsourced fares with search-date via
+`found_at` — is usable for this. Nothing else proceeds on the live-collector
+front until that comes back one way or the other. If it comes back
+unusable, the fallback options in the comparison table are Duffel (~$3/mo,
+needs an explicit budget-exception decision) or dropping live collection
+for this phase entirely (Kaggle-only).
 
 **Not started yet — this is the actual remaining work**:
 1. User signs up for Amadeus, adds credentials to `.env`, edits
@@ -92,9 +93,12 @@ out as the final training source — see `decisions.md`).
 
 ## Next action
 
-Two independent tracks, can happen in either order:
-1. User: sign up for Amadeus, configure `.env`, edit `routes.json`,
-   schedule `collect_fares.py` daily — starts the real-data clock ticking.
-2. Build the Kaggle data loader (`load_kaggle_flightprices.py`) and rerun
-   `train.py` against it — gets a real-data-trained model without
-   waiting on the collector to accumulate enough spread.
+1. **Blocked on user**: read Travelpayouts' terms (linked in `decisions.md`)
+   and decide if its Data API is usable — this determines whether the
+   live-collector code gets rewritten against Travelpayouts, rewritten
+   against Duffel (with an explicit $0-budget exception), or dropped for
+   this phase.
+2. **Not blocked, can proceed independently**: build the Kaggle data
+   loader (`load_kaggle_flightprices.py`) and rerun `train.py` against
+   it — gets a real-data-trained model regardless of how the live-stream
+   question resolves.
