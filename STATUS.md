@@ -45,46 +45,82 @@ See `decisions.md`'s pivot entry for the full alternative comparison
 (Duffel, Sabre, Travelpayouts, RapidAPI mirrors — none free-and-unambiguous
 the way Amadeus was).
 
-**Current plan (as of 2026-09-05, awaiting user input)**: user is reading
-Travelpayouts' actual terms (linked in `decisions.md`) to decide if its
-Data API — genuinely free, real crowdsourced fares with search-date via
-`found_at` — is usable for this. Nothing else proceeds on the live-collector
-front until that comes back one way or the other. If it comes back
-unusable, the fallback options in the comparison table are Duffel (~$3/mo,
-needs an explicit budget-exception decision) or dropping live collection
-for this phase entirely (Kaggle-only).
+**Superseded (2026-09-05, same day)**: user deprioritized the steady-stream
+question — asked for "the past year or so" of real price data to start
+instead, and to figure out the steady stream later. The Travelpayouts
+terms check is still open (user hasn't reported back), but nothing below
+depends on it anymore for now — see the BTS DB1C section that follows.
+
+**Built and DONE (2026-09-05) — real data is in the repo**:
+- `load_bts_db1c.py` — downloads and aggregates BTS's O&D DB1C Product
+  File (real, ticket-level, U.S. government fare data, monthly 40%
+  sample, no signup). 11 months available: July 2025 - May 2026 — this is
+  the "past year or so" of real data the user asked for.
+- Verified by direct inspection of the actual data (not just docs) before
+  building anything on it: real routes recovered correctly (ORD-LGA,
+  LAX-HNL, ATL-LGA, ...), round-trip detection works, `PurWinGrp` gives a
+  genuine (coarse, 3-bucket) lead-time signal. Full detail + the
+  round-trip-detection heuristic in `decisions.md`.
+- One real implementation problem hit and fixed: the first version used
+  pandas `groupby().agg()` with quantile lambdas and hung for 5+ minutes
+  on a single 14.6M-row month with zero output — killed it and rewrote
+  using DuckDB's `quantile_cont` querying the parquet directly via SQL;
+  same aggregation now takes under 4 seconds.
+- **`data/bts_real_fares_agg.csv` is committed**: 342,480 rows, 20,296
+  real routes, all 11 months, filtered to groups with >=20 real tickets
+  (dropped ~1M thinner groups where a 3-quantile estimate isn't
+  trustworthy — raw unfiltered output was 1.37M rows / 90k routes / 97MB,
+  right at GitHub's soft size limit; filtered version is 25MB).
+- **Spot-checked the actual lead-time signal and it's real**: ORD-LGA,
+  January 2026 — booking 91+ days out has a $209 median price; booking
+  within 21 days of departure has a $312 median. That's the effect the
+  whole buy/wait tool exists to detect, now backed by real ticket data
+  instead of a hand-authored synthetic curve.
+
+**Known, permanent limitation of this data**: month-level granularity,
+not day-level. It can calibrate real price levels, route coverage, and
+monthly seasonality, and can drive a coarse 3-bucket buy/wait signal — it
+**cannot** power day-precise date-window search the way
+`date_window_optimizer.py` currently does on synthetic data. This is an
+open architecture question (see below), not something quietly absorbed.
 
 **Not started yet — this is the actual remaining work**:
-1. User signs up for Amadeus, adds credentials to `.env`, edits
-   `routes.json`, and schedules `collect_fares.py` to run daily.
-2. Pull the Kaggle bootstrap dataset. Kaggle credentials already present
-   locally (`~/.kaggle/kaggle.json`) — [dilwong/flightprices](https://www.kaggle.com/datasets/dilwong/flightprices)
-   is the target (real scraped Expedia fares with both search date and
-   flight date). See `decisions.md` for why this is the bootstrap source
-   while `collect_fares.py`'s output accumulates in parallel.
-3. Build a loader that reshapes the Kaggle dataset into the existing
-   schema so `price_model.py`/`train.py` need zero changes.
-4. Retrain on real (Kaggle-bootstrapped, later Amadeus-augmented) data,
-   re-evaluate honestly (expect MAPE meaningfully worse than the
-   synthetic 10.6% — report it, don't tune against it).
-5. Write the integration schema doc: exact function signatures, input/
+1. Once the full 11-month aggregate finishes: decide how `price_model.py`
+   consumes it. It cannot go through the exact same feature pipeline as
+   synthetic data (no day-of-week, no exact trip length, no per-airline
+   breakdown available at this granularity) — likely needs either (a) a
+   reduced-feature real-data model variant (route + month + lead-time
+   bucket only), or (b) using this data purely to calibrate/sanity-check
+   the synthetic-trained model's absolute price levels rather than
+   retraining on it directly. Not yet decided — worth a deliberate choice
+   before writing more code, not a default.
+2. Separately, still available as a day-level (but 2022, stale) real data
+   source if day-precision matters more than recency for a first pass:
+   [dilwong/flightprices](https://www.kaggle.com/datasets/dilwong/flightprices)
+   on Kaggle (credentials already present locally).
+3. Write the integration schema doc: exact function signatures, input/
    output JSON shape, error format matching Itinera's `tools.py`
    convention, and how Itinera should load `price_model.joblib`.
-6. Hand off: hand-carry the artifact + schema doc, or open a PR/issue in
+4. Hand off: hand-carry the artifact + schema doc, or open a PR/issue in
    Itinera once its own "flights" work actually starts — TBD, not yet
    decided (see `decisions.md`'s open question).
+5. Separately, still pending: the steady-stream question (Travelpayouts
+   terms check) — deprioritized by the user, not abandoned.
 
 ## Known blockers / risks
 
-- **Route coverage**: the Kaggle dataset covers specific US city pairs
-  scraped in 2022 — it will not cover every route Itinera might ask
-  about. The model's accuracy outside covered routes/date-ranges is
-  unknown and should be flagged as a limitation in the handoff doc, not
-  silently extrapolated.
-- **Staleness**: 2022 fare levels don't reflect 2026 pricing. Absolute
-  price predictions will likely be off; *relative* signals (which dates/
-  windows are cheaper, whether to wait) are the more defensible product
-  to ship first — flag this explicitly to whoever integrates it.
+- **Granularity mismatch**: BTS DB1C (month-level) vs. this repo's
+  existing model (day-level synthetic). Needs a deliberate architecture
+  decision, not a silent workaround — see "Not started yet" #1.
+- **Turnaround-airport approximation**: for round-trip tickets with
+  asymmetric outbound/return connection counts, `load_bts_db1c.py`'s
+  midpoint heuristic for the destination airport can be slightly wrong.
+  Rare in practice (most itineraries are symmetric) but not zero.
+- **Route coverage**: BTS DB1C is U.S. domestic + U.S.-carrier
+  international origin/destination — won't cover every route Itinera
+  might ask about, and thin routes (few real tickets in the 40% sample)
+  will have unreliable quantiles. `n_tickets` is included in the output
+  specifically so low-volume groups can be filtered out downstream.
 - **Timeline**: "a couple of days with full attention" — if real-data
   integration runs over that, the fallback is to ship the artifact
   trained on real data as of whatever point has been reached, clearly
@@ -93,12 +129,7 @@ for this phase entirely (Kaggle-only).
 
 ## Next action
 
-1. **Blocked on user**: read Travelpayouts' terms (linked in `decisions.md`)
-   and decide if its Data API is usable — this determines whether the
-   live-collector code gets rewritten against Travelpayouts, rewritten
-   against Duffel (with an explicit $0-budget exception), or dropped for
-   this phase.
-2. **Not blocked, can proceed independently**: build the Kaggle data
-   loader (`load_kaggle_flightprices.py`) and rerun `train.py` against
-   it — gets a real-data-trained model regardless of how the live-stream
-   question resolves.
+Once the background aggregation job finishes: decide the model-adaptation
+question above (#1 in "Not started yet") before writing a training script
+against `data/bts_real_fares_agg.csv` — this is a real design choice, not
+just plumbing.

@@ -13,3 +13,8 @@ synthetic_fares.csv
 
 # data/real_fares.csv is intentionally NOT ignored - it's the accumulating
 # real dataset from collect_fares.py and is meant to be committed as it grows
+
+# raw BTS DB1C downloads (~1GB/month zip) - regenerable via load_bts_db1c.py,
+# far too large to commit. data/bts_real_fares_agg.csv (the tiny aggregate
+# output) is NOT ignored - that's the actual real-data artifact.
+.bts_cache/

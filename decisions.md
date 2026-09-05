@@ -4,6 +4,55 @@ What was decided, why, and when to revisit. Newest first.
 
 ---
 
+## Bootstrap data source: BTS DB1C, not Kaggle dilwong/flightprices
+
+**Decided**: 2026-09-05
+**Context**: user asked for "the past year or so" of real price data to
+start, deprioritizing the steady-stream question for later.
+**Decision**: use BTS's O&D DB1C Product File as the bootstrap dataset
+instead of the previously-planned Kaggle `dilwong/flightprices` (still
+useful as a secondary source, not chosen as primary here).
+**Why**: DB1C genuinely satisfies "past year or so" — 11 monthly files
+available, July 2025 through May 2026, real ticket-level U.S. government
+data, no signup, direct public downloads, public-domain provenance
+(cleanest of anything evaluated in this project). `dilwong/flightprices`
+by contrast is from 2022 — real and day-level, but not "past year."
+**What was verified by direct inspection of the actual data** (not just
+documentation) before committing to this:
+  - `PurWinGrp` is a genuine, if coarse, lead-time field: `21AP` (≤21 days
+    before departure), `2290` (22-90 days), `91UP` (91+ days). Mapped to
+    an approximate numeric midpoint (10/55/150 days) in `load_bts_db1c.py`
+    — a modeling approximation, clearly labeled as such in that file, not
+    a measurement.
+  - Round-trip tickets are identifiable: the itinerary path (`Apt_1`,
+    `Apt_2`, ...) returns to its own origin for a round trip. The actual
+    destination (turnaround point) is then approximated as the airport at
+    the path's midpoint (`CouponSeg // 2`) — verified against real
+    high-volume routes (ORD-LGA, LAX-HNL, ATL-LGA) to confirm this
+    produces sane, recognizable destinations, not the origin repeated.
+  - **Granularity is month-level, not day-level** — `SchFlMo_1` etc. give
+    only the travel month, never a specific date. This is a real,
+    permanent limitation of this source: it can calibrate real price
+    levels, route coverage, and monthly seasonality, and can drive a
+    coarse buy/wait signal (3 lead-time buckets), but it **cannot** power
+    day-precise date-window search the way `date_window_optimizer.py`
+    currently promises on synthetic data. Flagged in `STATUS.md` as an
+    open architecture question, not silently absorbed.
+**Implementation note**: the first aggregation attempt used pandas
+`groupby().agg()` with per-group quantile lambdas over the ~14.6M-row
+monthly file — abandoned after running 5+ minutes with zero output (a
+known-slow pandas pattern at this scale). Rewrote using DuckDB's
+`quantile_cont` querying the parquet file directly via SQL: same
+14.6M-row month aggregates in under 4 seconds. `load_bts_db1c.py` uses
+DuckDB, not pandas groupby, for this reason.
+**Revisit if**: Itinera's actual routes need day-level lead-time
+precision from day one — in which case this needs supplementing with
+`dilwong/flightprices` (day-level but 2022) or the eventual steady-stream
+source (still pending, see the Travelpayouts entry below) before the
+buy/wait or date-window tools can honestly claim day-level accuracy.
+
+---
+
 ## Amadeus self-service is dead — pivot pending user's Travelpayouts terms check
 
 **Decided**: 2026-09-05 (supersedes the entry below, kept for record)

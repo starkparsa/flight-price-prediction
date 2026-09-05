@@ -38,10 +38,8 @@ low as $458 or as high as $702") rather than presenting false precision.
 | `train.py` | Driver script: generates data, trains the model, evaluates on a strictly future held-out period, saves `price_model.joblib`. |
 | `date_window_optimizer.py` | Grid-searches departure/return date pairs for a route and collapses results into ranked, human-readable booking windows. |
 | `buy_or_wait.py` | Given a fixed trip, projects the price trajectory forward to departure and recommends BUY or WAIT. |
-| `amadeus_client.py` | Thin wrapper over the Amadeus Flight Offers Search API — OAuth2 token handling, never raises (returns `{"error": ...}`). |
-| `quota_tracker.py` | Local monthly call-count guard so the free-tier Amadeus quota is never silently exceeded. |
-| `collect_fares.py` | **The steady-stream data collector.** Run daily (cron/Task Scheduler) to append real, current fares to `data/real_fares.csv` in this repo's schema — see "Collecting real data" below. |
-| `routes.json` | Routes the collector queries — edit this to match whatever routes Itinera actually needs; ships with a placeholder set. |
+| `load_bts_db1c.py` | **The real bootstrap data loader.** Downloads and aggregates BTS's O&D DB1C Product File (real U.S. government ticket data, 11 months: Jul 2025 - May 2026) into `data/bts_real_fares_agg.csv` — see "Real bootstrap data" below. |
+| `amadeus_client.py`, `quota_tracker.py`, `collect_fares.py`, `routes.json` | **Dead code** — built for a live daily collector against Amadeus's Flight Offers Search API, which was decommissioned (2026-07-17) before it could ever be used. Kept for reference; see in-file warnings and `decisions.md`. |
 
 ## Setup
 
@@ -82,48 +80,52 @@ search_date, route, departure_date, return_date, days_out, nights, stops, airlin
 ```
 
 Good sources for real fare data:
-- **[BTS DB1C (Origin & Destination Survey)](https://www.bts.gov/topics/airlines-and-airports/origin-and-destination-survey-data)** — free, ticket-level US fare data, monthly 40% sample. One-time bulk download, not a stream.
-- **[Kaggle: Flight Prices (dilwong)](https://www.kaggle.com/datasets/dilwong/flightprices)** — scraped Expedia fares with both search date and flight date. One-time bulk download; used to bootstrap the first real-data training pass (see `decisions.md`).
-- **Amadeus Self-Service Flight Offers Search API, via `collect_fares.py` in this repo** — the ongoing steady-stream source. See below.
+- **BTS DB1C, via `load_bts_db1c.py` in this repo** — the current real bootstrap source. See below.
+- **[Kaggle: Flight Prices (dilwong)](https://www.kaggle.com/datasets/dilwong/flightprices)** — scraped Expedia fares with both search date and flight date, day-level (but from 2022 — not "the past year"). A secondary option if day-level precision matters more than recency.
+- ~~Amadeus Self-Service Flight Offers Search API~~ — **decommissioned 2026-07-17**, no longer available. `amadeus_client.py`/`collect_fares.py` are dead code kept for reference.
 
-## Collecting real data (the steady stream) — currently blocked
+## Real bootstrap data: BTS DB1C
 
-**Amadeus decommissioned its self-service developer portal on
-2026-07-17** — the collector described below can no longer be used as-is.
-See `STATUS.md` and `decisions.md` for the current plan (evaluating
-Travelpayouts as a replacement data source). The rest of this section
-describes the original design, kept because the rotation/quota-guard
-pattern is reusable against whatever provider replaces Amadeus.
+`data/bts_real_fares_agg.csv` is committed in this repo: **342,480 rows,
+20,296 real U.S. routes, 11 months (July 2025 - May 2026)**, aggregated
+from BTS's O&D DB1C Product File — real ticket-level government fare data,
+monthly 40% sample, freely downloadable with no signup. Regenerate it
+(or extend it as new months are published) with:
 
-`collect_fares.py` queries the Amadeus Flight Offers Search API for a
-rotating slice of (route, departure date, trip length) combinations each
-time it runs, and appends real current prices to `data/real_fares.csv` —
-same schema as everywhere else in this repo, so it's a drop-in replacement
-for the synthetic/Kaggle data once enough has accumulated.
-
-**Setup**:
-1. Free signup at [developers.amadeus.com](https://developers.amadeus.com) → create a Self-Service app → copy the Client ID/Secret.
-2. `cp .env.example .env` and fill in `AMADEUS_CLIENT_ID` / `AMADEUS_CLIENT_SECRET`.
-3. Edit `routes.json` to the routes you actually care about.
-
-**Run it**:
 ```bash
-python collect_fares.py --dry-run        # see what it would query, no API calls
-python collect_fares.py                  # real run, 20 calls by default
+python load_bts_db1c.py                    # downloads all known months + aggregates (~11GB, takes a while)
+python load_bts_db1c.py --skip-download    # re-aggregate from already-cached files in .bts_cache/ (seconds)
+python load_bts_db1c.py --months 202605    # just one month, for testing
 ```
 
-**Run it daily** (this is what makes it a stream rather than a one-off):
-schedule `python collect_fares.py` once a day via cron or Windows Task
-Scheduler. Each run queries a different rotating slice of the
-route/lead-time/trip-length grid (`collect_fares.py`'s docstring explains
-the rotation), so over weeks the dataset naturally builds up real
-coverage across lead times — exactly the signal the model needs and can't
-get from a single bulk dataset.
+**What's in each row**: `origin`, `destination`, `year`, `month`,
+`purwin` (purchase-window bucket: `21AP`/`2290`/`91UP` = booked ≤21 /
+22-90 / 91+ days before departure), `n_tickets`, `price_p10`/`price_p50`/
+`price_p90` (per-passenger, round-trip only — one-way tickets are
+dropped), `days_out_midpoint` (an approximate numeric lead time derived
+from `purwin`, for anything downstream that wants a number rather than a
+bucket label).
 
-**Cost safety**: `quota_tracker.py` tracks calls made this calendar month
-in a local file and refuses to run once within a safety margin of
-Amadeus's free 2,000/month production limit (default cap: 1,800). At the
-default 20 calls/day this never gets close (~600/month).
+**What this data can and can't do** — read before using it for anything:
+- Real price levels, real route coverage, real monthly seasonality, and a
+  genuine (if coarse) lead-time effect: e.g. ORD-LGA in Jan 2026 shows a
+  $209 median fare booked 91+ days out vs. $312 booked within 21 days.
+- **Cannot** drive day-precise date-window search — the source data is
+  month-level, not day-level (`SchFlMo_1` etc. give only the travel
+  month). `date_window_optimizer.py`'s day-by-day grid search is not
+  something this data source can honestly back; that gap is still open
+  (see `STATUS.md`).
+- Filtered to route/month/purwin groups with ≥20 real tickets
+  (`--min-tickets`, default 20) — below that, a 3-quantile estimate isn't
+  trustworthy. The unfiltered aggregate is 1.37M rows / 90k routes / 97MB;
+  filtering trades thin/noisy routes for a file 4x smaller and estimates
+  that are actually meaningful.
+- Full detail on the round-trip-detection heuristic (there's no explicit
+  round-trip column in the source; it's inferred from the itinerary path)
+  and every other design choice: `decisions.md`.
+
+Raw downloads land in `.bts_cache/` (gitignored, ~11GB total — regenerate
+locally, don't expect it in the repo).
 
 ## Model performance (on synthetic data)
 
@@ -132,6 +134,8 @@ Evaluated on a strictly future held-out period (never seen in training):
 - MAPE: ~10.6%
 - p10/p90 quantile coverage: ~89% each (target 90%)
 
-Real-world accuracy will depend on how much historical search/price data is
-available per route — a few thousand searches per route over several
-months is a reasonable minimum for a usable signal.
+This is the synthetic-data pipeline's validation number, not a real-world
+accuracy claim. `price_model.py` has not yet been retrained against
+`data/bts_real_fares_agg.csv` — see `STATUS.md` for why that's a real
+design decision (the BTS data has a coarser feature set: no day-of-week,
+no exact trip length) rather than a drop-in swap.

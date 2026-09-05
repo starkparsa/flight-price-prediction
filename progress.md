@@ -4,6 +4,94 @@ Dated diary of what happened each session. Newest first.
 
 ---
 
+## 2026-09-05 (continued, again) — BTS DB1C bootstrap
+
+User deprioritized the steady-stream question: "I just need the past year
+or so price data to start and then we can figure out a steady stream of
+data." Re-evaluated the data-source options against that specific framing
+(recency + real, not lead-time-completeness).
+
+Checked a "recently updated" Kaggle search first (sorted by last_updated)
+— found it's a weak signal: most "2026-updated" flight-price datasets are
+just re-uploads of old data (India-domestic 2019, etc.), not actually
+recent flights. One genuine candidate, `olegzay/european-flight-prices-
+and-itineraries-2026`, had real `days_left` lead-time data but only a
+2-month forward window (May-June 2026), one-way only, scraped from Google
+Flights (a ToS concern similar to ones flagged earlier), 2 votes — not
+adopted.
+
+Pivoted to checking **BTS DB1C** directly instead of assuming its
+limitations from memory. Fought through a WAF block on the PDF field
+description (curl got an Akamai "Access Denied"; the direct browser
+navigation worked but only offered a save dialog) and a stale obfuscated
+URL for the field-selection tool, then found the actual download page
+(`bts.gov/topics/airlines-and-airports/origin-and-destination-survey-data-
+product`) with direct, unauthenticated Azure blob links for all 11
+available months (July 2025 - May 2026).
+
+**Downloaded and directly inspected the real data before building
+anything on assumptions.** This corrected two things I'd gotten wrong in
+earlier sessions:
+1. Assumed BTS O&D data has no lead-time field at all — wrong. `PurWinGrp`
+   is a genuine (coarse, 3-bucket: ≤21/22-90/91+ days) purchase-window
+   field.
+2. Needed to figure out round-trip detection from scratch, since there's
+   no explicit round-trip column: the itinerary path (`Apt_1`, `Apt_2`,
+   ...) returns to its own origin for a round trip. Caught a real bug
+   here during development — my first attempt used the path's *final*
+   airport as "destination," which for a round trip is always the origin
+   itself (that's how round-trip is detected), so every top route came
+   out as `ATL-ATL`, `DFW-DFW`, etc. Fixed by using the path's *midpoint*
+   airport instead for round trips; reran and got recognizable real
+   routes (ORD-LGA, HNL-OGG, LAX-HNL, ATL-LGA) with plausible fares.
+
+**Performance problem hit and fixed**: first aggregation attempt used
+pandas `groupby().agg()` with quantile lambdas over one month's ~14.6M
+rows — let it run 5+ minutes with zero output and flat memory (a
+known-slow pattern), killed the process, installed DuckDB, and rewrote
+the same aggregation as one SQL query using `quantile_cont` directly
+against the parquet file. Same result in under 4 seconds.
+
+Built `load_bts_db1c.py` (downloads + aggregates all 11 months into
+`data/bts_real_fares_agg.csv`), updated `requirements.txt`
+(duckdb instead of the pyarrow the first attempt needed), updated
+`.gitignore` (`.bts_cache/` - raw files are ~1GB/month, far too large to
+commit; the aggregate output is not ignored). Verified end-to-end on the
+one cached month (132,836 route/purwin groups, 60,972 unique routes) before
+kicking off the full 11-month run in the background.
+
+**Completed after this entry was first written**: the 11-month
+download/aggregation finished (downloads slowed a lot partway through —
+one file took 25+ minutes when earlier ones took 2-3; confirmed via
+`tasklist`/file-size polling that the process was genuinely still
+progressing, not hung, before deciding to just let it run rather than
+restart anything). Final unfiltered result: 1.37M rows, 90,000 routes,
+97MB — right at GitHub's soft file-size limit and mostly noise (median
+group had only 5 real tickets, useless for a 3-quantile estimate). Added
+a `--min-tickets` filter (default 20) to `load_bts_db1c.py`, reran
+against the already-cached files (no re-download needed, seconds not
+minutes), got 342,480 rows / 20,296 routes / 25MB — committed this as
+`data/bts_real_fares_agg.csv`.
+
+Spot-checked the result for a real signal, not just a clean pipeline:
+ORD-LGA in January 2026 shows $209 median price booking 91+ days out vs.
+$312 median booking within 21 days — the real lead-time effect this
+whole project is trying to capture, now backed by actual ticket data.
+
+**Process note on this session**: spent several turns manually polling
+the background download job on a timer before catching that background
+bash tasks notify automatically on completion — should have just waited
+for the notification from the start instead of repeated `ScheduleWakeup`
++ manual `cat`/`tasklist` checks. Corrected mid-session.
+
+**Not yet decided**: how `price_model.py` should actually consume this
+aggregate, since it's a coarser feature set (no day-of-week, no exact
+trip length, no per-airline breakdown) than the day-level schema the
+rest of this repo assumes — flagged in `STATUS.md` as a real design
+decision, not resolved yet.
+
+---
+
 ## 2026-09-05 (continued) — Amadeus pivot
 
 User tried to actually sign up for Amadeus (from this session's own
