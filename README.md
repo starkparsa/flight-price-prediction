@@ -38,6 +38,10 @@ low as $458 or as high as $702") rather than presenting false precision.
 | `train.py` | Driver script: generates data, trains the model, evaluates on a strictly future held-out period, saves `price_model.joblib`. |
 | `date_window_optimizer.py` | Grid-searches departure/return date pairs for a route and collapses results into ranked, human-readable booking windows. |
 | `buy_or_wait.py` | Given a fixed trip, projects the price trajectory forward to departure and recommends BUY or WAIT. |
+| `amadeus_client.py` | Thin wrapper over the Amadeus Flight Offers Search API — OAuth2 token handling, never raises (returns `{"error": ...}`). |
+| `quota_tracker.py` | Local monthly call-count guard so the free-tier Amadeus quota is never silently exceeded. |
+| `collect_fares.py` | **The steady-stream data collector.** Run daily (cron/Task Scheduler) to append real, current fares to `data/real_fares.csv` in this repo's schema — see "Collecting real data" below. |
+| `routes.json` | Routes the collector queries — edit this to match whatever routes Itinera actually needs; ships with a placeholder set. |
 
 ## Setup
 
@@ -78,9 +82,41 @@ search_date, route, departure_date, return_date, days_out, nights, stops, airlin
 ```
 
 Good sources for real fare data:
-- **[BTS DB1C (Origin & Destination Survey)](https://www.bts.gov/topics/airlines-and-airports/origin-and-destination-survey-data)** — free, ticket-level US fare data, monthly 40% sample.
-- **[Kaggle: Flight Prices (dilwong)](https://www.kaggle.com/datasets/dilwong/flightprices)** — scraped Expedia fares with both search date and flight date, structurally closest to what this model needs.
-- **[Amadeus Self-Service Flight Offers Search API](https://developers.amadeus.com/self-service/category/flights/api-doc/flight-offers-search)** — live pricing, 2,000 free calls/month in production, unlimited in the test environment. Use it to collect real price observations over time to feed the model, rather than querying it live for every date combination.
+- **[BTS DB1C (Origin & Destination Survey)](https://www.bts.gov/topics/airlines-and-airports/origin-and-destination-survey-data)** — free, ticket-level US fare data, monthly 40% sample. One-time bulk download, not a stream.
+- **[Kaggle: Flight Prices (dilwong)](https://www.kaggle.com/datasets/dilwong/flightprices)** — scraped Expedia fares with both search date and flight date. One-time bulk download; used to bootstrap the first real-data training pass (see `decisions.md`).
+- **Amadeus Self-Service Flight Offers Search API, via `collect_fares.py` in this repo** — the ongoing steady-stream source. See below.
+
+## Collecting real data (the steady stream)
+
+`collect_fares.py` queries the Amadeus Flight Offers Search API for a
+rotating slice of (route, departure date, trip length) combinations each
+time it runs, and appends real current prices to `data/real_fares.csv` —
+same schema as everywhere else in this repo, so it's a drop-in replacement
+for the synthetic/Kaggle data once enough has accumulated.
+
+**Setup**:
+1. Free signup at [developers.amadeus.com](https://developers.amadeus.com) → create a Self-Service app → copy the Client ID/Secret.
+2. `cp .env.example .env` and fill in `AMADEUS_CLIENT_ID` / `AMADEUS_CLIENT_SECRET`.
+3. Edit `routes.json` to the routes you actually care about.
+
+**Run it**:
+```bash
+python collect_fares.py --dry-run        # see what it would query, no API calls
+python collect_fares.py                  # real run, 20 calls by default
+```
+
+**Run it daily** (this is what makes it a stream rather than a one-off):
+schedule `python collect_fares.py` once a day via cron or Windows Task
+Scheduler. Each run queries a different rotating slice of the
+route/lead-time/trip-length grid (`collect_fares.py`'s docstring explains
+the rotation), so over weeks the dataset naturally builds up real
+coverage across lead times — exactly the signal the model needs and can't
+get from a single bulk dataset.
+
+**Cost safety**: `quota_tracker.py` tracks calls made this calendar month
+in a local file and refuses to run once within a safety margin of
+Amadeus's free 2,000/month production limit (default cap: 1,800). At the
+default 20 calls/day this never gets close (~600/month).
 
 ## Model performance (on synthetic data)
 

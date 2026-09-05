@@ -4,6 +4,51 @@ What was decided, why, and when to revisit. Newest first.
 
 ---
 
+## Steady-stream data source: self-run Amadeus daily collector, not a third-party aggregator
+
+**Decided**: 2026-09-05
+**Decision**: Build `collect_fares.py` as a scheduled, self-run daily
+collector against the Amadeus Flight Offers Search API, rather than
+depending on a third-party price-history site or aggregator API.
+**Why**: Surveyed three classes of option before deciding:
+- **FareDetective.com** (`faredetective.com/farehistory`) — investigated
+  directly. Has an internal AJAX endpoint (`POST /faredetective/chart_data`)
+  but it's undocumented, unofficial, the data it returns is stale (checked
+  live: series stopped at **April 2010**), and it lacks lead-time/search-date
+  fields entirely (just route+month+price). Also, its `robots.txt`
+  explicitly disallows `ClaudeBot` site-wide — respected that and stopped
+  investigating further. Not usable on any of the three grounds
+  independently.
+- **Travelpayouts/Aviasales Data API** — genuinely the best-shaped option
+  found (`/v2/prices/latest` has a `found_at` field, i.e. real search-date +
+  price pairs, continuously refreshed). Not chosen for the *first* build
+  because it requires registering as a Travelpayouts affiliate and its docs
+  describe the intended use as generating affiliate content pages — no
+  clear terms found permitting bulk reuse for ML training. Left pending
+  the user's own read of its terms (open question below), not ruled out.
+- **Amadeus Self-Service** — official developer program, clean ToS built
+  explicitly for this kind of use, free 2,000 calls/month in production.
+  Doesn't arrive as a stream on its own (it's on-demand, one call = one
+  query) — so the "stream" is this repo's own scheduled collector, not a
+  property of the API.
+**Design choices inside the collector**:
+  - Deterministic day-of-epoch rotation through a fixed (route × days_out ×
+    nights) grid, so repeated daily runs sweep the whole grid over time
+    instead of hammering the same points — see `collect_fares.py`'s
+    module docstring for the exact mechanism.
+  - A local `quota_tracker.py` hard-caps monthly calls well under the free
+    limit (1,800 of 2,000) so a misconfigured cron job can't generate a
+    surprise bill.
+  - `data/real_fares.csv` is committed to git (not gitignored) — unlike
+    `synthetic_fares.csv` — because it's the actual accumulating asset
+    this whole effort exists to produce, not a regenerable artifact.
+**Revisit if**: the Travelpayouts terms check comes back permissive — it
+would meaningfully speed up real lead-time coverage versus the Amadeus
+collector alone (crowdsourced vs. self-polled), and the two aren't
+mutually exclusive.
+
+---
+
 ## Deliverable shape: trained artifact + schema, not a REST service
 
 **Decided**: 2026-09-04
@@ -116,6 +161,14 @@ before any future data source swap).
 ---
 
 ## Open question — not yet decided
+
+**Is Travelpayouts' Data API usable for this?** It's the best-shaped
+third-party option found (real search-date + price pairs, continuously
+refreshed, free) but its docs describe the intended use as affiliate
+content generation and require joining their affiliate network — no
+clear terms found permitting bulk ML-training reuse. User is checking
+this themselves (2026-09-05). If it comes back permissive, it's a strong
+complement to the Amadeus collector, not a replacement for it.
 
 **How does the finished artifact actually get into Itinera's repo/deploy?**
 Options not yet chosen between: hand-carry the `.joblib` + schema doc into

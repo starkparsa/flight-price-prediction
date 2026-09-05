@@ -34,26 +34,44 @@ out as the final training source — see `decisions.md`).
   says nothing about real-world accuracy.
 - Public repo live: https://github.com/starkparsa/flight-price-prediction
 
+**Built since (steady-stream data collection, 2026-09-05)**:
+- `amadeus_client.py` — Amadeus Flight Offers Search wrapper (OAuth2,
+  never raises, `{"error": ...}` on failure — matches Itinera's `tools.py`
+  convention already).
+- `quota_tracker.py` — local monthly call-count guard, hard-capped under
+  Amadeus's free 2,000/month production limit.
+- `collect_fares.py` — the actual steady-stream collector. Run daily, it
+  queries a deterministically-rotating slice of (route, days_out, nights)
+  combinations and appends real current prices to `data/real_fares.csv`
+  in this repo's existing schema. Verified: dry-run mode works, quota
+  guard correctly refuses to burn quota on a local auth/config failure
+  (caught and fixed a bug where it originally did).
+- `routes.json` — placeholder route list; **needs updating** to whatever
+  routes Itinera actually needs once that's known.
+- Not yet run against a real Amadeus account — needs a free
+  developers.amadeus.com signup + API key (the user's own signup; not
+  something this session can do on their behalf) before it produces any
+  real rows.
+
 **Not started yet — this is the actual remaining work**:
-1. Pull real fare data. Kaggle credentials already present locally
-   (`~/.kaggle/kaggle.json`) — [dilwong/flightprices](https://www.kaggle.com/datasets/dilwong/flightprices)
-   is the target dataset (real scraped Expedia fares with both search
-   date and flight date — the only free dataset found with the fields
-   this model needs). See `decisions.md` for why this beats BTS/Amadeus
-   for the first real pass.
-2. Build a loader that reshapes that dataset into the existing schema
-   (`search_date, route, departure_date, return_date, days_out, nights,
-   stops, airline, price`) so `price_model.py`/`train.py` need zero
-   changes.
-3. Retrain on real data, re-evaluate (expect MAPE to be meaningfully
-   worse than the synthetic 10.6% — that's expected and fine, report it
-   honestly rather than tuning against it).
-4. Write the integration schema doc: exact function signatures, input/
+1. User signs up for Amadeus, adds credentials to `.env`, edits
+   `routes.json`, and schedules `collect_fares.py` to run daily.
+2. Pull the Kaggle bootstrap dataset. Kaggle credentials already present
+   locally (`~/.kaggle/kaggle.json`) — [dilwong/flightprices](https://www.kaggle.com/datasets/dilwong/flightprices)
+   is the target (real scraped Expedia fares with both search date and
+   flight date). See `decisions.md` for why this is the bootstrap source
+   while `collect_fares.py`'s output accumulates in parallel.
+3. Build a loader that reshapes the Kaggle dataset into the existing
+   schema so `price_model.py`/`train.py` need zero changes.
+4. Retrain on real (Kaggle-bootstrapped, later Amadeus-augmented) data,
+   re-evaluate honestly (expect MAPE meaningfully worse than the
+   synthetic 10.6% — report it, don't tune against it).
+5. Write the integration schema doc: exact function signatures, input/
    output JSON shape, error format matching Itinera's `tools.py`
    convention, and how Itinera should load `price_model.joblib`.
-5. Hand off: hand-carry the artifact + schema doc, or open a PR/issue in
-   Itinera once Itinera's own "flights" work actually starts — TBD, not
-   yet decided (see `decisions.md`'s open question).
+6. Hand off: hand-carry the artifact + schema doc, or open a PR/issue in
+   Itinera once its own "flights" work actually starts — TBD, not yet
+   decided (see `decisions.md`'s open question).
 
 ## Known blockers / risks
 
@@ -74,5 +92,9 @@ out as the final training source — see `decisions.md`).
 
 ## Next action
 
-Build the Kaggle data loader (`load_kaggle_flightprices.py`) and rerun
-`train.py` against it.
+Two independent tracks, can happen in either order:
+1. User: sign up for Amadeus, configure `.env`, edit `routes.json`,
+   schedule `collect_fares.py` daily — starts the real-data clock ticking.
+2. Build the Kaggle data loader (`load_kaggle_flightprices.py`) and rerun
+   `train.py` against it — gets a real-data-trained model without
+   waiting on the collector to accumulate enough spread.

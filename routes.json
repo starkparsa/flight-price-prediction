@@ -1,0 +1,10 @@
+[
+  {"origin": "JFK", "destination": "LAX"},
+  {"origin": "JFK", "destination": "LHR"},
+  {"origin": "ORD", "destination": "SFO"},
+  {"origin": "ATL", "destination": "MIA"},
+  {"origin": "SFO", "destination": "NRT"},
+  {"origin": "LAX", "destination": "SYD"},
+  {"origin": "ORD", "destination": "CDG"},
+  {"origin": "SEA", "destination": "DEN"}
+]

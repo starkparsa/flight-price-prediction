@@ -1,6 +1,15 @@
 __pycache__/
 *.pyc
 *.joblib
-*.csv
 .venv/
 venv/
+
+# secrets - never commit
+.env
+.amadeus_quota.json
+
+# transient/regenerable synthetic data, not the real accumulating dataset
+synthetic_fares.csv
+
+# data/real_fares.csv is intentionally NOT ignored - it's the accumulating
+# real dataset from collect_fares.py and is meant to be committed as it grows

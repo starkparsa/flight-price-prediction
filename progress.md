@@ -4,6 +4,82 @@ Dated diary of what happened each session. Newest first.
 
 ---
 
+## 2026-09-05
+
+**Grilled the project scope** at the user's request before touching code
+again: wrote `CLAUDE.md`/`STATUS.md`/`decisions.md`/`progress.md` (this
+file), mirroring Itinera's own doc-split convention (discovered by reading
+Itinera's `CLAUDE.md` directly). This surfaced the real constraints —
+Itinera integration, $0 budget, ~2-day timeline, artifact-not-API delivery,
+real-data-required — that shaped everything below.
+
+**Searched existing open-source repos** before building further, per the
+user's request not to reinvent something that already exists. Checked ~15
+repos by star count and by direct relevance to "buy or wait". Findings: the
+popular ones (Mandal-21/Flight-Price-Prediction at 236★ down to ~10★) are
+all the same pattern — single point-estimate regression on the Kaggle
+Indian-flights or scraped-Kayak dataset, no lead-time modeling, no
+date-window search, no buy/wait logic. Nothing found is more capable than
+what's already in this repo. Two smaller repos aimed at "buy or wait"
+specifically: `adriancervero/flight-prices-prediction` (classification
+framing instead of regression, worth noting as a method but built on the
+now-closed Kiwi API, unmaintained since 2022) and
+`VishalMurali/flight-price-predictor` (turned out to be republishing a
+Hopper interview take-home dataset — real OTA data with exactly our
+schema, but no license and unclear redistribution rights; handed the link
+to the user to evaluate themselves rather than deciding for them).
+
+**Investigated faredetective.com/farehistory** for a usable API at the
+user's request. Found an internal `POST /faredetective/chart_data`
+endpoint by watching network traffic, but: data is stale (stopped at April
+2010), lacks lead-time/search-date fields, and the site's `robots.txt`
+explicitly disallows `ClaudeBot` — stopped there rather than pushing
+further. Reported all three reasons rather than picking one.
+
+**Researched steady-stream (ongoing, not one-time) data options** at the
+user's request. Compared FareDetective (ruled out above), Travelpayouts/
+Aviasales Data API (best-shaped but affiliate-terms ambiguity — left as an
+open question for the user to check), Amadeus Self-Service (official,
+clean terms, on-demand rather than a stream by itself), and BTS DB1C
+(genuinely ongoing but monthly-grain, no lead-time field). Recommended
+building a self-run daily collector against Amadeus. User approved.
+
+**Built the Amadeus collector**:
+- `amadeus_client.py` — OAuth2 client-credentials wrapper, a tiny built-in
+  `.env` loader (avoided adding `python-dotenv` as a dependency), never
+  raises publicly (Itinera `tools.py`-style `{"error": ...}` returns).
+- `quota_tracker.py` — local monthly call-count guard, capped at 1,800 of
+  Amadeus's free 2,000/month production limit.
+- `collect_fares.py` — deterministic day-of-epoch rotation through a
+  (route × days_out × nights) grid, appends real offers to
+  `data/real_fares.csv` in the existing schema.
+- `routes.json` — placeholder route list (needs updating once Itinera's
+  actual target routes are known).
+- `.env.example` — credential template, real `.env` gitignored.
+
+**Bug caught and fixed during testing**: the first version incremented
+the monthly quota counter even when the call never reached Amadeus (missing
+credentials, failed locally at token acquisition) — verified by running
+without credentials and inspecting `.amadeus_quota.json`, which showed 2
+calls recorded for 2 calls that never left the machine. Fixed by adding a
+preflight token check in `collect_fares.py` that aborts before the loop
+(and before any quota is recorded) if authentication fails, rather than
+recording each failed attempt as a used call inside the loop. Verified the
+fix: reset the quota file, reran, confirmed it no longer gets created on an
+auth failure.
+
+**Also cleaned up**: deleted a leftover header-only `data/real_fares.csv`
+that an earlier pre-fix test run had created, so nothing fake ships in the
+repo.
+
+**Not done yet**: the collector has never actually run against a real
+Amadeus account — that needs the user's own free signup (account creation
+isn't something this session does on someone's behalf) plus `.env`
+configuration and a daily schedule (cron/Task Scheduler), none of which
+happened this session.
+
+---
+
 ## 2026-09-04
 
 **Context established**: this started as a general "how would I build a
